@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ResumeNER — Entity Highlighter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:ital,wght@0,300;0,400;0,500;1,400&family=Syne:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+<header>
+  <div class="logo">
+    <div class="logo-mark">Resume<span>NER</span></div>
+    <div class="logo-sub">Entity Highlighter</div>
+  </div>
+  <div class="header-badge">NLP · v1.0</div>
+</header>
+ 
+<div class="hero">
+  <h1>Visualize <em>named entities</em><br>from your resume scans</h1>
+</div>
+ 
+<div class="app">
+ 
+  <!-- LEFT PANEL -->
+  <div class="panel-left">
+    <div class="step">
+      <div class="step-label">
+        <div class="step-num">1</div>
+        <div class="step-title">Upload Resume PDF</div>
+      </div>
+      <div class="file-drop" id="drop-zone">
+        <div class="file-drop-icon">📄</div>
+        <div class="file-drop-text">
+          <strong>Drop a .pdf file</strong> or click to upload
+          <small>The file will be processed on the server</small>
+        </div>
+        <input type="file" id="file-input" accept=".pdf" />
+      </div>
+      <div class="file-name-badge" id="file-name-badge"></div>
+    </div>
+ 
+    <div class="step">
+      <div class="step-label">
+        <div class="step-num">2</div>
+        <div class="step-title">Analyze</div>
+      </div>
+      <button class="btn-analyze" id="btn-analyze" disabled>Highlight Entities</button>
+      <div class="loading-overlay" id="loading">
+        <div class="spinner"></div>
+        <span>Processing PDF — this may take a moment…</span>
+      </div>
+      <div class="error-box" id="error-box"></div>
+    </div>
+ 
+    <!-- OUTPUT -->
+    <div class="output-section" id="output-section">
+      <div class="output-header">
+        <div class="output-title">Annotated Resume</div>
+        <div class="output-file" id="output-file"></div>
+      </div>
+      <div class="resume-body" id="resume-body"></div>
+    </div>
+ 
+  </div>
+ 
+  <!-- RIGHT SIDEBAR -->
+  <div class="panel-right">
+ 
+    <div class="sidebar-section">
+      <div class="sidebar-label">Entity Legend</div>
+      <div id="legend-list">
+        <div class="empty-state">
+          <div class="icon">🔍</div>
+          <p>Run the analysis to see<br>detected entity types here.</p>
+        </div>
+      </div>
+      <button class="btn-clear-filter" id="btn-clear-filter">Clear filter</button>
+    </div>
+ 
+    <div class="sidebar-section" id="stats-section" style="display:none">
+      <div class="sidebar-label">Statistics</div>
+      <div class="stat-grid" id="stat-grid"></div>
+    </div>
+ 
+    <div class="sidebar-section" id="conf-section" style="display:none">
+      <div class="sidebar-label">Avg Confidence by Type</div>
+      <div id="conf-bars"></div>
+    </div>
+ 
+  </div>
+</div>
+ 
+<footer>
+  <span>ResumeNER — NLP Entity Highlighter</span>
+  <span>Char-offset based annotation</span>
+</footer>
+ 
+<div id="tooltip">
+  <div class="tt-type" id="tt-type"></div>
+  <div class="tt-score">confidence: <span id="tt-score"></span></div>
+</div>
+ 
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
