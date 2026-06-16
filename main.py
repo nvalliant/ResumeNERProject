@@ -9,19 +9,14 @@ from gliner import GLiNER
 
 app = Flask(__name__)
 
-model = GLiNER.from_pretrained("urchade/gliner_large-v2.1")
+model_large = GLiNER.from_pretrained("knowledgator/gliner-multitask-large-v0.5")
+model_nuner = GLiNER.from_pretrained("numind/NuNER_Zero")
 
-entityLabels = [
-    "job title",
-    "company name",
-    "university degree or major",
-    "certification or license",
-    "years or months of experience",
-    "programming language",
-    "software framework or library",
-    "technical skill",
-    "email address or phone number",
-    "soft skill or personal trait",
+BASE_LABELS = [
+    "job title", "company name", "university degree or major", 
+    "technical skill", "programming language", "software framework or library",
+    "certification or license", "years or months of experience", "contact",
+    "soft skill or personal trait"
 ]
 
 BLOCKLIST = {
@@ -39,28 +34,17 @@ def extractPDF(pdf_bytes: str) -> str:
   return text
 
 def normalize(text: str) -> str:
-  text = uni.normalize("NFKC", text)
-
-  #normalize punct
+  text = uni.normalize("NFKD", text)
   text = text.replace('\r\n', '\n').replace('\r', '\n')
-    
-  text = text.replace('\xa0', ' ')
-
-  text = text.replace("\u200b", "")
-    
-  text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]', '', text)
-
-  text = re.sub(r"[\u200b\u200c\u200d\ufeff\u00ad]", "", text)
+  text = text.encode("ascii", "ignore").decode("ascii")
+  text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', text)
     
   return text
 
 
 def cleanText(text: str) -> str:
-  #remove page numbers
   text = re.sub(r'\bPage\s+\d+\s*(of\s*\d+)?\b', '', text, flags=re.IGNORECASE)
   text = re.sub(r'^\s*\d+\s*$', '', text, flags=re.MULTILINE)
-
-  #remove white spaces
   text = re.sub(r'\n{3,}', '\n\n', text)
   text = re.sub(r'[ \t]+', ' ', text)
   return text.strip()
@@ -83,47 +67,76 @@ def buildJSON(entities: list[dict], resumeFile: str) -> dict:
       "entities": dict(grouped)
   }
 
-def chunkedPredict(model, text: str, labels: list, chunk_size=380, overlap=50, threshold=0.1):
-    words = text.split()
-    all_entities = []
+def run_gliner_chunked(model, text: str, is_nuner=False, chunk_size=300, overlap=75, threshold=0.6):
+    word_matches = list(re.finditer(r'\S+', text))
+    all_preds = []
     seen = set()
-
+    
     i = 0
-    char_search_start = 0
-    while i < len(words):
-        chunk_words = words[i:i + chunk_size]
-
-        # Find real start position of first word
-        chunk_start = text.find(chunk_words[0], char_search_start)
-
-        # Find end position by locating each word sequentially
-        pos = chunk_start
-        for word in chunk_words:
-            found = text.find(word, pos)
-            if found == -1:
-                break
-            pos = found + len(word)
-        chunk_end = pos
-
-        # Slice directly from original text, preserving all whitespace
+    while i < len(word_matches):
+        chunk_matches = word_matches[i : i + chunk_size]
+        if not chunk_matches: break
+            
+        chunk_start = chunk_matches[0].start()
+        chunk_end = chunk_matches[-1].end()
         chunk_text = text[chunk_start:chunk_end]
-
-        entities = model.predict_entities(chunk_text, labels, threshold=threshold, flat_ner=False, multi_label=True, max_len=384)
-
+        
+        entities = model.predict_entities(
+            chunk_text, BASE_LABELS, threshold=threshold, flat_ner=False, multi_label=True, max_len=384
+        )
+        
         for ent in entities:
+            base_label = ent["label"]
             abs_start = ent["start"] + chunk_start
             abs_end   = ent["end"]   + chunk_start
-            key = (ent["label"], abs_start, abs_end)
+            
+            key = (base_label, abs_start, abs_end)
             if key not in seen:
                 seen.add(key)
-                ent["start"] = abs_start
-                ent["end"]   = abs_end
-                all_entities.append(ent)
+                all_preds.append({
+                    "label": base_label,
+                    "start": abs_start,
+                    "end": abs_end,
+                    "score": ent["score"]
+                })
+                
+        i += (chunk_size - overlap)
+        
+    if is_nuner and all_preds:
+        all_preds = sorted(all_preds, key=lambda x: x['start'])
+        merged, current = [], all_preds[0].copy()
+        for next_ent in all_preds[1:]:
+            if next_ent['label'] == current['label'] and (next_ent['start'] <= current['end'] + 1):
+                current['end'] = max(current['end'], next_ent['end'])
+                current['score'] = max(current['score'], next_ent['score'])
+            else:
+                merged.append(current)
+                current = next_ent.copy()
+        merged.append(current)
+        return merged
+        
+    return all_preds
 
-        char_search_start = chunk_start
-        i += chunk_size - overlap
-
-    return all_entities
+def ensemble_predictions(preds_a, preds_b, full_text):
+    all_preds = sorted(preds_a + preds_b, key=lambda x: x['start'])
+    if not all_preds: return []
+    
+    combined = []
+    current = all_preds[0].copy()
+    
+    for next_ent in all_preds[1:]:
+        if next_ent['label'] == current['label'] and max(current['start'], next_ent['start']) <= min(current['end'], next_ent['end']):
+            current['start'] = min(current['start'], next_ent['start'])
+            current['end'] = max(current['end'], next_ent['end'])
+            current['score'] = max(current['score'], next_ent['score']) # Keep highest confidence
+        else:
+            current['text'] = full_text[current['start']:current['end']]
+            combined.append(current)
+            current = next_ent.copy()
+            
+    current['text'] = full_text[current['start']:current['end']]
+    combined.append(current)
+    return combined
 
 @app.route('/')
 def index():
@@ -143,9 +156,10 @@ def analyze():
         raw_text = extractPDF(pdf_bytes)
         normalized = normalize(raw_text)
         cleaned = cleanText(normalized)
- 
-        entities = chunkedPredict(model, cleaned, entityLabels)
-        output = buildJSON(entities, file.filename)
+        preds_large = run_gliner_chunked(model_large, cleaned, is_nuner=False)
+        preds_nuner = run_gliner_chunked(model_nuner, cleaned, is_nuner=True)
+        final_entities = ensemble_predictions(preds_large, preds_nuner, cleaned)
+        output = buildJSON(final_entities, file.filename)
         output["text"] = cleaned
  
         return jsonify(output)
