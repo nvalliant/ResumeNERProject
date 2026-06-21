@@ -44,7 +44,7 @@ const ENTITY_MAP = {
     color: "#a3e635",
     label: "Framework",
   },
-  "email address or phone number": {
+  contact: {
     cls: "ent-contact",
     color: "#f472b6",
     label: "Contact",
